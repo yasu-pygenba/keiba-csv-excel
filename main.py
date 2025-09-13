@@ -1,5 +1,7 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 import openpyxl
+import os
 
 def load_csv(file_path_input: str, file_path_pay:str) -> pd.DataFrame:
     """CSVを読み込む"""
@@ -7,8 +9,8 @@ def load_csv(file_path_input: str, file_path_pay:str) -> pd.DataFrame:
 
 def clean_data(df: pd.DataFrame, payouts_df) -> pd.DataFrame:
     """データの整形（着順を整数に変換）"""
-    df['着順'] = df['着順'].astype(int)
-
+    df = df.dropna(subset=["着順"])
+    df["着順"] = df["着順"].astype(int)
     # 払戻金の整形（数字だけに変換）
     payouts_df["払戻金"] = (
         payouts_df["払戻金"]
@@ -19,7 +21,7 @@ def clean_data(df: pd.DataFrame, payouts_df) -> pd.DataFrame:
 
     return df, payouts_df
 
-def calc_summary(df_tm, df_payouts, trackmen=['TM1', 'TM2', 'TM3', 'TM4'],
+def calc_summary(df_tm, df_payouts, trackmen=['TM1', 'TM2', 'TM3'],
                   bet_types=["単勝","複勝"]):
     
     results = []
@@ -88,7 +90,7 @@ def export_to_excel(df: pd.DataFrame, output_path: str):
 
 def aggregate_data(df: pd.DataFrame) -> pd.DataFrame:
     """トラックマンごと＆券種ごとの集計"""
-    grouped = df.groupby(["トラックマン", "券種"]).agg({
+    grouped = df.groupby(["トラックマン", "開催場", "券種"]).agg({
         "購入金額": "sum",
         "払戻金": "sum",
         "収支": "sum"
@@ -100,9 +102,50 @@ def aggregate_data(df: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+
+def plot_keiba_graphs(df):
+    """
+    開催場ごとのトラックマン別回収率をグラフに保存する関数
+    df: pandas DataFrame
+        必須カラム = ["開催場", "トラックマン", "券種", "回収率(%)"]
+    """
+
+    # 日本語フォント（Windowsの場合）
+    plt.rcParams['font.family'] = 'MS Gothic'
+
+    # pivotで「単勝」「複勝」を横に並べる
+    pivot_df = df.pivot_table(
+        index=["開催場", "トラックマン"],
+        columns="券種",
+        values="回収率(%)"
+    ).reset_index()
+
+    # 開催場ごとにグラフを作成
+    for venue in pivot_df["開催場"].unique():
+        subset = pivot_df[pivot_df["開催場"] == venue]
+
+        ax = subset.plot(
+            x="トラックマン",
+            y=["単勝", "複勝"],
+            kind="bar",
+            figsize=(8, 5)
+        )
+        plt.title(f"{venue} - トラックマン別回収率")
+        plt.ylabel("回収率(%)")
+        plt.xticks(rotation=0)
+        plt.axhline(100, color="red", linestyle="--")
+        plt.legend(title="券種")
+        plt.tight_layout()
+        plt.savefig(f"{venue}_回収率.png")
+        plt.close()
+
+    print("結果のグラフを保存したよ！")
+
 def main():
-    input_csv = "input.csv"   # 元データ
-    payouts_csv = 'payouts.csv' # 払戻データ
+
+    BASE_DIR = os.path.dirname(__file__)
+    input_csv = os.path.join(BASE_DIR, "sample_data", "input.csv")
+    payouts_csv = os.path.join(BASE_DIR, "sample_data", "payouts.csv")
     output_excel = "output.xlsx"  # 出力先
 
     df, payouts_df = load_csv(input_csv, payouts_csv)
@@ -110,6 +153,10 @@ def main():
     df = calc_summary(df, payouts_df)
     df = aggregate_data(df)
     export_to_excel(df, output_excel)
+
+    # グラフ出力（PNGで保存）
+    plot_keiba_graphs(df)
+
 
 if __name__ == "__main__":
     main()
